@@ -126,12 +126,30 @@
   const uploadStatus = document.getElementById("upload-status");
   const quizFileInput = document.getElementById("quiz-file");
 
+  const exportFilter = document.getElementById("export-quiz-filter");
+  const exportLink = document.getElementById("export-results");
+
+  function updateExportLink() {
+    const quizId = exportFilter.value;
+    exportLink.href = quizId
+      ? `/api/admin/results/export?quizId=${encodeURIComponent(quizId)}`
+      : "/api/admin/results/export";
+  }
+  exportFilter.addEventListener("change", updateExportLink);
+
   async function loadQuizzes() {
     const quizzes = await api("/api/admin/quizzes");
 
     fields.activeQuizId.innerHTML = quizzes
       .map((q) => `<option value="${escapeHtml(q.id)}">${escapeHtml(q.title)} (${q.id})</option>`)
       .join("");
+
+    exportFilter.innerHTML =
+      `<option value="">All quizzes</option>` +
+      quizzes
+        .map((q) => `<option value="${escapeHtml(q.id)}">${escapeHtml(q.title)} (${q.id})</option>`)
+        .join("");
+    updateExportLink();
 
     quizzesTableBody.innerHTML = "";
     quizzes.forEach((q) => {
@@ -142,19 +160,46 @@
         <td>${q.questionCount}</td>
         <td></td>
       `;
+      const renameBtn = document.createElement("button");
+      renameBtn.type = "button";
+      renameBtn.className = "btn btn-accent btn-small";
+      renameBtn.textContent = "Rename";
+      renameBtn.addEventListener("click", async () => {
+        const title = prompt(`New title for "${q.id}":`, q.title);
+        if (title === null || title.trim() === "" || title === q.title) return;
+        try {
+          await api(`/api/admin/quizzes/${encodeURIComponent(q.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title }),
+          });
+          await refreshAll();
+        } catch (err) {
+          alert("Could not rename: " + err.message);
+        }
+      });
+
       const deleteBtn = document.createElement("button");
       deleteBtn.type = "button";
       deleteBtn.className = "btn btn-danger btn-small";
       deleteBtn.textContent = "Delete";
       deleteBtn.addEventListener("click", async () => {
-        if (!confirm(`Delete quiz "${q.title}" (${q.id})? This cannot be undone.`)) return;
+        const password = prompt(
+          `This permanently deletes "${q.title}" (${q.id}). Re-enter the admin password to confirm:`
+        );
+        if (password === null) return;
         try {
-          await api(`/api/admin/quizzes/${encodeURIComponent(q.id)}`, { method: "DELETE" });
+          await api(`/api/admin/quizzes/${encodeURIComponent(q.id)}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password }),
+          });
           await refreshAll();
         } catch (err) {
           alert("Could not delete: " + err.message);
         }
       });
+      tr.lastElementChild.appendChild(renameBtn);
       tr.lastElementChild.appendChild(deleteBtn);
       quizzesTableBody.appendChild(tr);
     });
@@ -206,6 +251,26 @@
 
   document.getElementById("refresh-results").addEventListener("click", () => {
     loadResults().catch((err) => alert("Could not load results: " + err.message));
+  });
+
+  document.getElementById("clear-results").addEventListener("click", async () => {
+    const quizId = exportFilter.value;
+    const scope = quizId ? `for quiz "${quizId}"` : "for ALL quizzes";
+    const password = prompt(
+      `This permanently deletes every saved result ${scope}. Re-enter the admin password to confirm:`
+    );
+    if (password === null) return;
+    try {
+      const result = await api("/api/admin/results", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password, quizId: quizId || undefined }),
+      });
+      alert(`Deleted ${result.deletedCount} result(s).`);
+      await loadResults();
+    } catch (err) {
+      alert("Could not clear results: " + err.message);
+    }
   });
 
   // ---------- Init ----------

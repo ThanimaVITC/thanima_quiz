@@ -43,7 +43,7 @@ let db = null;
 
 async function connectMongo() {
   if (!MONGODB_URI) {
-    console.warn("MONGODB_URI is not configured (see .env.example) — the app will not function.");
+    console.warn("MONGODB_URI is not configured (see .env.example) - the app will not function.");
     return;
   }
   try {
@@ -51,7 +51,7 @@ async function connectMongo() {
     await client.connect();
     db = client.db(MONGODB_DB);
     await db.collection("results").createIndex({ quizId: 1, finishedAt: -1 });
-    // Abandoned attempts (browser closed mid-quiz) self-delete after 2 hours —
+    // Abandoned attempts (browser closed mid-quiz) self-delete after 2 hours -
     // these documents hold the answer key, so they shouldn't linger.
     await db.collection("attempts").createIndex({ startedAt: 1 }, { expireAfterSeconds: 7200 });
     console.log(`Connected to MongoDB database "${MONGODB_DB}".`);
@@ -64,12 +64,12 @@ async function connectMongo() {
 
 // One-time migration: if this is a fresh database (no config doc yet), seed it
 // from quiz.toml + the existing quizzes/*.json file so nothing already
-// authored is lost. After this, Mongo — via the admin panel — is authoritative.
+// authored is lost. After this, Mongo - via the admin panel - is authoritative.
 async function seedIfEmpty() {
   const existing = await db.collection("config").findOne({ _id: "site" });
   if (existing) return;
 
-  console.log("No config found in MongoDB — seeding from quiz.toml + quizzes/ on disk.");
+  console.log("No config found in MongoDB - seeding from quiz.toml + quizzes/ on disk.");
   let quizId = null;
   try {
     const raw = fs.readFileSync(path.join(__dirname, "quizzes", "gandhi-quiz.json"), "utf-8");
@@ -440,7 +440,27 @@ app.post("/api/admin/quizzes", adminAuth, requireDb, upload.single("file"), asyn
   res.status(201).json({ ok: true, id: quiz.id, questionCount: quiz.questions.length });
 });
 
+app.patch("/api/admin/quizzes/:id", adminAuth, requireDb, async (req, res) => {
+  const update = {};
+  if (typeof req.body.title === "string") {
+    const title = req.body.title.trim();
+    if (!title) return res.status(400).json({ error: "Title cannot be empty." });
+    update.title = title;
+  }
+  if (typeof req.body.description === "string") update.description = req.body.description.trim();
+  if (Object.keys(update).length === 0) {
+    return res.status(400).json({ error: "Nothing to update." });
+  }
+  const result = await db.collection("quizzes").updateOne({ _id: req.params.id }, { $set: update });
+  if (result.matchedCount === 0) return res.status(404).json({ error: "Quiz not found." });
+  res.json({ ok: true });
+});
+
 app.delete("/api/admin/quizzes/:id", adminAuth, requireDb, async (req, res) => {
+  const password = String((req.body && req.body.password) || "");
+  if (!ADMIN_PASSWORD || !safeEqual(password, ADMIN_PASSWORD)) {
+    return res.status(401).json({ error: "Incorrect password." });
+  }
   await db.collection("quizzes").deleteOne({ _id: req.params.id });
   res.json({ ok: true });
 });
@@ -454,6 +474,65 @@ app.get("/api/admin/results", adminAuth, requireDb, async (req, res) => {
     .limit(limit)
     .toArray();
   res.json(results);
+});
+
+app.delete("/api/admin/results", adminAuth, requireDb, async (req, res) => {
+  const password = String((req.body && req.body.password) || "");
+  if (!ADMIN_PASSWORD || !safeEqual(password, ADMIN_PASSWORD)) {
+    return res.status(401).json({ error: "Incorrect password." });
+  }
+  const query = {};
+  if (req.body && req.body.quizId) query.quizId = req.body.quizId;
+  const result = await db.collection("results").deleteMany(query);
+  res.json({ ok: true, deletedCount: result.deletedCount });
+});
+
+function csvEscape(value) {
+  const str = value === null || value === undefined ? "" : String(value);
+  if (/[",\n]/.test(str)) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+
+app.get("/api/admin/results/export", adminAuth, requireDb, async (req, res) => {
+  const query = {};
+  if (req.query.quizId) query.quizId = req.query.quizId;
+
+  const results = await db.collection("results").find(query).sort({ finishedAt: -1 }).toArray();
+
+  const header = [
+    "participant",
+    "registrationNumber",
+    "quizId",
+    "score",
+    "total",
+    "disqualified",
+    "startedAt",
+    "finishedAt",
+  ];
+  const rows = [header.join(",")];
+  for (const r of results) {
+    rows.push(
+      [
+        r.participant,
+        r.registrationNumber,
+        r.quizId,
+        r.score,
+        r.total,
+        r.disqualified,
+        r.startedAt ? new Date(r.startedAt).toISOString() : "",
+        r.finishedAt ? new Date(r.finishedAt).toISOString() : "",
+      ]
+        .map(csvEscape)
+        .join(",")
+    );
+  }
+
+  const filename = req.query.quizId ? `results-${req.query.quizId}.csv` : "results-all.csv";
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(rows.join("\n"));
 });
 
 // ---------- Start ----------

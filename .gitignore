@@ -1,7 +1,7 @@
 node_modules/
 .env
 
-# Local seed data only — may contain a real quiz's answer key, so this must
+# Local seed data only - may contain a real quiz's answer key, so this must
 # never be committed. The admin panel (backed by MongoDB) is the real source
 # of truth; these are just an optional first-run convenience.
 quiz.toml

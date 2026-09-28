@@ -71,7 +71,7 @@
   let config = DEFAULT_CONFIG;
   let configLoaded = false;
   let attemptId = null;
-  let questions = []; // [{id, question, options}] — no correct answers on the client
+  let questions = []; // [{id, question, options}] - no correct answers on the client
   let currentIndex = 0;
   let selections = {}; // questionId -> selected option text, or null if skipped
   let participant = "";
@@ -90,7 +90,7 @@
   const cooldownNumber = document.getElementById("cooldown-number");
   const screenQuestion = document.getElementById("screen-question");
 
-  // e.g. 24BLC1073 — 2-digit enrollment year, 3-letter branch code, 4-digit number
+  // e.g. 00XXX0000 - 2-digit enrollment year, 3-letter branch code, 4-digit number
   const REGISTRATION_NUMBER_PATTERN = /^\d{2}[A-Z]{3}\d{4}$/;
 
   function isRegistrationNumberValid() {
@@ -309,7 +309,7 @@
   function startAllQuestionsMode() {
     screenQuestion.innerHTML = `
       <div class="progress-row">
-        <span class="muted">All ${questions.length} questions — answer and submit before time runs out</span>
+        <span class="muted">All ${questions.length} questions - answer and submit before time runs out</span>
         <span id="timer-label" class="timer-label"></span>
       </div>
       <div class="timer-track"><div id="timer-bar" class="timer-bar"></div></div>

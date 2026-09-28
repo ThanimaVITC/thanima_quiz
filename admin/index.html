@@ -19,7 +19,7 @@
       <button id="logout-btn" class="btn btn-danger btn-small" type="button">Log out</button>
     </div>
     <p id="db-warning" class="error" hidden>
-      MongoDB is not connected — nothing here will load or save until it is.
+      MongoDB is not connected - nothing here will load or save until it is.
     </p>
 
     <section class="admin-card">
@@ -34,9 +34,9 @@
 
         <label>State
           <select id="cfg-state">
-            <option value="before">before — not open yet</option>
-            <option value="active">active — open now</option>
-            <option value="done">done — closed</option>
+            <option value="before">before - not open yet</option>
+            <option value="active">active - open now</option>
+            <option value="done">done - closed</option>
           </select>
         </label>
         <label>Before text<textarea id="cfg-before-text" rows="2"></textarea></label>
@@ -79,7 +79,12 @@
 
     <section class="admin-card">
       <h2>Recent results</h2>
-      <button id="refresh-results" class="btn btn-accent" type="button">Refresh</button>
+      <div class="admin-toolbar">
+        <button id="refresh-results" class="btn btn-accent btn-small" type="button">Refresh</button>
+        <select id="export-quiz-filter"></select>
+        <a id="export-results" class="btn btn-accent btn-small" href="/api/admin/results/export">Export CSV</a>
+        <button id="clear-results" class="btn btn-danger btn-small" type="button">Clear Results</button>
+      </div>
       <table class="admin-table" id="results-table">
         <thead>
           <tr><th>Name</th><th>Reg. No.</th><th>Score</th><th>Disqualified</th><th>Finished</th></tr>
