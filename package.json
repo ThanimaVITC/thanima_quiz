@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Minimal anti-cheat quiz site with per-question timers and MongoDB-backed results.",
+  "license": "MIT",
   "type": "commonjs",
   "main": "server.js",
   "scripts": {
