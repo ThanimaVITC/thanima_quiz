@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ormapadippu</title>
+  <link rel="icon" type="image/png" href="assets/thanima-logo.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark theme">
+    <span id="theme-toggle-icon" aria-hidden="true">&#9728;</span>
+  </button>
+
+  <main class="app">
+    <!-- Inactive screen: shown instead of the intro when the quiz isn't open
+         (quiz.toml "state" is "before" or "done") -->
+    <section id="screen-inactive" class="screen" data-screen="inactive" hidden>
+      <img class="logo" src="assets/thanima-logo.png" alt="thanima" />
+      <h1 id="inactive-title"></h1>
+      <p id="inactive-message" class="muted"></p>
+    </section>
+
+    <!-- Intro screen -->
+    <section id="screen-intro" class="screen" data-screen="intro">
+      <img class="logo" src="assets/thanima-logo.png" alt="thanima" />
+      <h1 id="quiz-title">ormapadippu</h1>
+      <p id="quiz-description" class="muted"></p>
+      <div class="notice">
+        <strong>Heads up:</strong> switching to another tab or window during the quiz will
+        end it immediately and disqualify your attempt.
+      </div>
+      <div class="field">
+        <label for="participant-name">Your name <span class="required">*</span></label>
+        <input id="participant-name" type="text" placeholder="Enter your name" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="registration-number">Registration number <span class="required">*</span></label>
+        <input
+          id="registration-number"
+          type="text"
+          placeholder="e.g. 24BLC1073"
+          autocomplete="off"
+          maxlength="9"
+        />
+        <p id="registration-number-error" class="error small" hidden>
+          Format: 2-digit year + 3-letter branch code + 4-digit number (e.g. 24BLC1073)
+        </p>
+      </div>
+      <p id="cooldown-note" class="muted small"></p>
+      <button id="begin-btn" class="btn btn-accent" type="button" disabled>Begin Quiz</button>
+      <p id="intro-error" class="error" hidden></p>
+    </section>
+
+    <!-- Cooldown screen: "get ready" countdown shown between Begin Quiz and the first question -->
+    <section id="screen-cooldown" class="screen" data-screen="cooldown" hidden>
+      <p class="muted">Get ready — the quiz starts in</p>
+      <span id="cooldown-number" class="cooldown-number"></span>
+    </section>
+
+    <!-- Question screen: content is fully rendered by app.js, since its
+         structure differs between one-question-per-page and all-on-one-page modes -->
+    <section id="screen-question" class="screen" data-screen="question" hidden></section>
+
+    <!-- Disqualified screen -->
+    <section id="screen-disqualified" class="screen" data-screen="disqualified" hidden>
+      <h1 class="alert-heading">Quiz Disqualified</h1>
+      <p class="muted">
+        You switched away from this tab or window while the quiz was in progress, so
+        this attempt has been ended and marked disqualified. Your responses up to that
+        point have been recorded.
+      </p>
+    </section>
+
+    <!-- Results screen -->
+    <section id="screen-results" class="screen" data-screen="results" hidden>
+      <h1>Quiz Submitted</h1>
+      <p class="muted">Thank you — your responses have been recorded.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

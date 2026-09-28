@@ -1,0 +1,360 @@
+:root {
+  --bg: #090d1a;
+  --bg-elevated: #eef5ff;
+  --bg-elevated-hover: #dde9fa;
+  --text: #13213d;
+  --text-muted: #5c6b85;
+  --border: #c9d9ee;
+  --accent: #c9900a;
+  --accent-strong: #e0a91f;
+  --accent-text: #1a1408;
+  --danger: #c8392e;
+  --danger-bg: #fbe4e1;
+  --shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="light"] {
+  --bg: #fbf6ea;
+  --bg-elevated: #ffffff;
+  --bg-elevated-hover: #f4ecd8;
+  --text: #241f14;
+  --text-muted: #6c6350;
+  --border: #e5dcc4;
+  --accent: #d99a00;
+  --accent-strong: #b87f00;
+  --accent-text: #1a1509;
+  --danger: #c23f2b;
+  --danger-bg: #fce9e4;
+  --shadow: 0 12px 32px rgba(60, 50, 20, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.app {
+  width: 100%;
+  max-width: 640px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 40px 36px;
+  box-shadow: var(--shadow);
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+}
+
+.screen[hidden] {
+  display: none;
+}
+
+.logo {
+  width: 160px;
+  max-width: 60%;
+  height: auto;
+  margin-bottom: 4px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  line-height: 1.4;
+  align-self: stretch;
+  text-align: left;
+}
+
+.muted {
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.notice {
+  width: 100%;
+  text-align: left;
+  background: var(--bg-elevated-hover);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.btn {
+  appearance: none;
+  border: none;
+  border-radius: 12px;
+  padding: 14px 28px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.08s ease, filter 0.15s ease;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.btn-accent:hover {
+  filter: brightness(1.08);
+}
+
+.error {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.field {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.field label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.required {
+  color: var(--danger);
+}
+
+.field input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated-hover);
+  color: var(--text);
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Question screen */
+.progress-row {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.timer-label {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.timer-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-elevated-hover);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.timer-bar {
+  height: 100%;
+  width: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 1s linear;
+}
+
+.options-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.option-btn {
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated-hover);
+  color: var(--text);
+  font-size: 0.98rem;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease, transform 0.08s ease;
+}
+
+.option-btn:hover {
+  border-color: var(--accent);
+}
+
+.option-btn:active {
+  transform: scale(0.99);
+}
+
+.option-btn:disabled {
+  cursor: default;
+}
+
+.option-btn.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-elevated-hover));
+}
+
+/* All-questions-on-one-page mode */
+.all-questions-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  text-align: left;
+}
+
+.question-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--border);
+}
+
+.question-block:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.question-block h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.4;
+}
+
+.question-number {
+  color: var(--accent);
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+/* Score / disqualified */
+.alert-heading {
+  color: var(--danger);
+}
+
+.cooldown-number {
+  font-size: 5rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+}
+
+/* Theme toggle */
+.theme-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--accent);
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow);
+  z-index: 10;
+}
+
+@media (max-width: 480px) {
+  .app {
+    padding: 28px 22px;
+  }
+}
+
+@media (min-width: 860px) {
+  body {
+    padding: 48px;
+  }
+
+  .app {
+    max-width: 760px;
+    padding: 56px 64px;
+    border-radius: 24px;
+  }
+
+  .logo {
+    width: 200px;
+  }
+
+  h1 {
+    font-size: 2.2rem;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+  }
+
+  .option-btn {
+    padding: 16px 20px;
+    font-size: 1.05rem;
+  }
+
+  .cooldown-number {
+    font-size: 7rem;
+  }
+
+  .question-block h3 {
+    font-size: 1.15rem;
+  }
+}
