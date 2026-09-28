@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thanima Quiz Admin</title>
+  <link rel="icon" type="image/png" href="/assets/thanima-logo.png" />
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/admin/admin.css" />
+</head>
+<body>
+  <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark theme">
+    <span id="theme-toggle-icon" aria-hidden="true">&#9728;</span>
+  </button>
+
+  <main class="admin-app">
+    <div class="admin-header">
+      <h1>Thanima Quiz Admin</h1>
+      <button id="logout-btn" class="btn btn-danger btn-small" type="button">Log out</button>
+    </div>
+    <p id="db-warning" class="error" hidden>
+      MongoDB is not connected — nothing here will load or save until it is.
+    </p>
+
+    <section class="admin-card">
+      <h2>Site &amp; quiz settings</h2>
+      <form id="config-form" class="admin-form">
+        <label>Name<input type="text" id="cfg-name" /></label>
+        <label>Description<textarea id="cfg-description" rows="2"></textarea></label>
+
+        <label>Active quiz
+          <select id="cfg-active-quiz"></select>
+        </label>
+
+        <label>State
+          <select id="cfg-state">
+            <option value="before">before — not open yet</option>
+            <option value="active">active — open now</option>
+            <option value="done">done — closed</option>
+          </select>
+        </label>
+        <label>Before text<textarea id="cfg-before-text" rows="2"></textarea></label>
+        <label>Done text<textarea id="cfg-done-text" rows="2"></textarea></label>
+
+        <label>Max time per question (seconds)
+          <input type="number" id="cfg-time-per-question" min="1" />
+        </label>
+        <label>Questions per attempt
+          <input type="number" id="cfg-questions-per-attempt" min="1" />
+        </label>
+        <label>Cooldown before quiz starts (seconds)
+          <input type="number" id="cfg-cooldown" min="0" />
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="cfg-one-question-per-page" />
+          One question per page
+        </label>
+
+        <button type="submit" class="btn btn-accent">Save settings</button>
+        <span id="config-status" class="muted small"></span>
+      </form>
+    </section>
+
+    <section class="admin-card">
+      <h2>Quiz bank</h2>
+      <table class="admin-table" id="quizzes-table">
+        <thead>
+          <tr><th>ID</th><th>Title</th><th>Questions</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <form id="upload-form" class="admin-form">
+        <label>Upload quiz JSON<input type="file" id="quiz-file" accept="application/json" required /></label>
+        <button type="submit" class="btn btn-accent">Upload</button>
+        <span id="upload-status" class="muted small"></span>
+      </form>
+    </section>
+
+    <section class="admin-card">
+      <h2>Recent results</h2>
+      <button id="refresh-results" class="btn btn-accent" type="button">Refresh</button>
+      <table class="admin-table" id="results-table">
+        <thead>
+          <tr><th>Name</th><th>Reg. No.</th><th>Score</th><th>Disqualified</th><th>Finished</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/admin/app.js"></script>
+</body>
+</html>

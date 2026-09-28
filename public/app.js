@@ -2,7 +2,7 @@
   "use strict";
 
   // ---------- Theme ----------
-  const THEME_KEY = "ormapadippu-theme";
+  const THEME_KEY = "thanima-quiz-theme";
   const themeToggleBtn = document.getElementById("theme-toggle");
   const themeToggleIcon = document.getElementById("theme-toggle-icon");
 
@@ -53,49 +53,27 @@
     });
   }
 
-  // ---------- Utilities ----------
-  function shuffle(array) {
-    const arr = array.slice();
-    for (let i = arr.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
-
-  function prepareQuiz(raw, questionsPerAttempt) {
-    let picked = shuffle(raw.questions);
-    if (questionsPerAttempt && questionsPerAttempt > 0 && questionsPerAttempt < picked.length) {
-      picked = picked.slice(0, questionsPerAttempt);
-    }
-    const questions = picked.map((q) => {
-      const correctValue = q.options[q.correctIndex];
-      const options = shuffle(q.options);
-      return { id: q.id, question: q.question, options, correctValue };
-    });
-    return { id: raw.id, title: raw.title, description: raw.description, questions };
-  }
-
   // ---------- App state ----------
   const DEFAULT_CONFIG = {
-    name: "ormapadippu",
+    name: "Thanima Quiz",
     description: "",
-    dbLocation: "quizzes",
-    quizFile: "gandhi-quiz.json",
+    quizTitle: "",
+    quizDescription: "",
     maxTimePerQuestionSeconds: 7,
     oneQuestionPerPage: true,
     questionsPerAttempt: 20,
     cooldownSeconds: 5,
-    state: "active",
-    beforeText: "This quiz hasn't started yet. Please check back soon.",
+    state: "before",
+    beforeText: "The quiz service is temporarily unavailable. Please try again soon.",
     doneText: "This quiz has been completed and no more submissions will be taken.",
   };
 
   let config = DEFAULT_CONFIG;
-  let quiz = null;
+  let configLoaded = false;
+  let attemptId = null;
+  let questions = []; // [{id, question, options}] — no correct answers on the client
   let currentIndex = 0;
   let selections = {}; // questionId -> selected option text, or null if skipped
-  let startedAt = null;
   let participant = "";
   let registrationNumber = "";
   let countdownInterval = null;
@@ -123,7 +101,7 @@
     const regValue = regNumberInput.value.trim();
     regNumberError.hidden = regValue.length === 0 || isRegistrationNumberValid();
     beginBtn.disabled =
-      !quiz || nameInput.value.trim().length === 0 || !isRegistrationNumberValid();
+      !configLoaded || nameInput.value.trim().length === 0 || !isRegistrationNumberValid();
   }
   nameInput.addEventListener("input", updateBeginEnabled);
   regNumberInput.addEventListener("input", () => {
@@ -133,7 +111,7 @@
     updateBeginEnabled();
   });
 
-  // ---------- Load config + quiz ----------
+  // ---------- Load config ----------
   async function loadConfig() {
     try {
       const res = await fetch("/api/config");
@@ -146,19 +124,6 @@
     }
     document.title = config.name;
     cooldownNote.textContent = `There is a ${config.cooldownSeconds} second cooldown before the quiz starts.`;
-  }
-
-  async function loadQuiz() {
-    const base = config.dbLocation.replace(/\/$/, "");
-    const quizRes = await fetch(`${base}/${config.quizFile}`);
-    if (!quizRes.ok) throw new Error("Could not load quiz data.");
-    const raw = await quizRes.json();
-
-    document.getElementById("quiz-title").textContent = raw.title || config.name;
-    document.getElementById("quiz-description").textContent = config.description || raw.description || "";
-
-    quiz = prepareQuiz(raw, config.questionsPerAttempt);
-    updateBeginEnabled();
   }
 
   function showInactiveScreen() {
@@ -174,14 +139,11 @@
       showInactiveScreen();
       return;
     }
-    try {
-      await loadQuiz();
-    } catch (err) {
-      console.error(err);
-      introError.textContent = "Sorry, the quiz could not be loaded. " + err.message;
-      introError.hidden = false;
-      beginBtn.disabled = true;
-    }
+    document.getElementById("quiz-title").textContent = config.quizTitle || config.name;
+    document.getElementById("quiz-description").textContent =
+      config.description || config.quizDescription || "";
+    configLoaded = true;
+    updateBeginEnabled();
   })();
 
   // ---------- Tab-switch detection ----------
@@ -207,23 +169,42 @@
   }
 
   // ---------- Begin ----------
-  beginBtn.addEventListener("click", () => {
-    if (!quiz) return;
+  beginBtn.addEventListener("click", async () => {
+    if (beginBtn.disabled) return;
     participant = nameInput.value.trim();
     registrationNumber = regNumberInput.value.trim();
-    currentIndex = 0;
-    selections = {};
-    startedAt = new Date().toISOString();
-    armAntiCheat();
-    showScreen("cooldown");
-    runCooldown(config.cooldownSeconds, () => {
-      showScreen("question");
-      if (config.oneQuestionPerPage) {
-        startSingleQuestionMode();
-      } else {
-        startAllQuestionsMode();
-      }
-    });
+    beginBtn.disabled = true;
+    introError.hidden = true;
+
+    try {
+      const res = await fetch("/api/attempt/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participant, registrationNumber }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not start the quiz.");
+
+      attemptId = data.attemptId;
+      questions = data.questions;
+      currentIndex = 0;
+      selections = {};
+
+      armAntiCheat();
+      showScreen("cooldown");
+      runCooldown(config.cooldownSeconds, () => {
+        showScreen("question");
+        if (config.oneQuestionPerPage) {
+          startSingleQuestionMode();
+        } else {
+          startAllQuestionsMode();
+        }
+      });
+    } catch (err) {
+      introError.textContent = err.message;
+      introError.hidden = false;
+      updateBeginEnabled();
+    }
   });
 
   function runCooldown(seconds, onDone) {
@@ -256,23 +237,23 @@
     `;
     document.getElementById("confirm-btn").addEventListener("click", () => {
       if (answered || !pendingSelection) return;
-      lockInSingleAnswer(quiz.questions[currentIndex], pendingSelection);
+      lockInSingleAnswer(questions[currentIndex], pendingSelection);
     });
     renderSingleQuestion();
   }
 
   function renderSingleQuestion() {
-    if (currentIndex >= quiz.questions.length) {
+    if (currentIndex >= questions.length) {
       finishQuiz(false);
       return;
     }
 
     answered = false;
     pendingSelection = null;
-    const q = quiz.questions[currentIndex];
+    const q = questions[currentIndex];
 
     document.getElementById("progress-label").textContent =
-      `Question ${currentIndex + 1} of ${quiz.questions.length}`;
+      `Question ${currentIndex + 1} of ${questions.length}`;
     document.getElementById("question-text").textContent = q.question;
 
     const confirmBtn = document.getElementById("confirm-btn");
@@ -328,7 +309,7 @@
   function startAllQuestionsMode() {
     screenQuestion.innerHTML = `
       <div class="progress-row">
-        <span class="muted">All ${quiz.questions.length} questions — answer and submit before time runs out</span>
+        <span class="muted">All ${questions.length} questions — answer and submit before time runs out</span>
         <span id="timer-label" class="timer-label"></span>
       </div>
       <div class="timer-track"><div id="timer-bar" class="timer-bar"></div></div>
@@ -337,7 +318,7 @@
     `;
 
     const list = document.getElementById("all-questions-list");
-    quiz.questions.forEach((q, idx) => {
+    questions.forEach((q, idx) => {
       const block = document.createElement("div");
       block.className = "question-block";
 
@@ -366,7 +347,7 @@
 
     document.getElementById("submit-all-btn").addEventListener("click", () => finishQuiz(false));
 
-    const totalSeconds = config.maxTimePerQuestionSeconds * quiz.questions.length;
+    const totalSeconds = config.maxTimePerQuestionSeconds * questions.length;
     startCountdown(totalSeconds, () => finishQuiz(false));
   }
 
@@ -404,50 +385,30 @@
     advanceTimeout = setTimeout(onExpire, seconds * 1000);
   }
 
-  // ---------- Scoring / finish ----------
-  function computeScoreAndAnswers() {
-    let score = 0;
-    const answers = quiz.questions.map((q) => {
-      const selected = selections[q.id] ?? null;
-      const correct = selected !== null && selected === q.correctValue;
-      if (correct) score += 1;
-      return { questionId: q.id, selected, correct };
-    });
-    return { score, answers };
-  }
-
+  // ---------- Finish ----------
   function disqualify() {
     clearTimers();
     disarmAntiCheat();
-    const { score, answers } = computeScoreAndAnswers();
     showScreen("disqualified");
-    submitResults(true, score, answers);
+    submitFinish(true);
   }
 
   function finishQuiz() {
     clearTimers();
     disarmAntiCheat();
-    const { score, answers } = computeScoreAndAnswers();
     showScreen("results");
-    submitResults(false, score, answers);
+    submitFinish(false);
   }
 
-  function submitResults(disqualified, score, answers) {
-    const payload = {
-      quizId: quiz.id,
-      participant,
-      registrationNumber,
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      disqualified,
-      score,
-      total: quiz.questions.length,
-      answers,
-    };
-    fetch("/api/results", {
+  function submitFinish(disqualified) {
+    const answers = Object.entries(selections).map(([questionId, selected]) => ({
+      questionId,
+      selected,
+    }));
+    fetch(`/api/attempt/${attemptId}/finish`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ disqualified, answers }),
     }).catch((err) => {
       console.warn("Could not save quiz results (is the server/DB configured?):", err);
     });

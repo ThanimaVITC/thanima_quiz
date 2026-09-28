@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thanima Quiz Admin</title>
+  <link rel="icon" type="image/png" href="/assets/thanima-logo.png" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="screen">
+      <h1>Admin Login</h1>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" autofocus />
+      </div>
+      <button id="login-btn" class="btn btn-accent" type="button">Log in</button>
+      <p id="login-error" class="error" hidden></p>
+    </section>
+  </main>
+
+  <script>
+    const btn = document.getElementById("login-btn");
+    const input = document.getElementById("password");
+    const error = document.getElementById("login-error");
+
+    async function submit() {
+      error.hidden = true;
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/admin/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: input.value }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Login failed.");
+        window.location.href = "/admin/";
+      } catch (err) {
+        error.textContent = err.message;
+        error.hidden = false;
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener("click", submit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+    });
+  </script>
+</body>
+</html>

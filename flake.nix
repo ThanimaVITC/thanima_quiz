@@ -1,5 +1,5 @@
 {
-  description = "ormapadippu — minimal anti-cheat quiz site dev environment";
+  description = "Thanima Quiz — minimal anti-cheat quiz site dev environment";
 
   inputs = {
     # Plain tarball URL (not "github:") so this doesn't hit api.github.com's
@@ -25,7 +25,7 @@
             ];
 
             shellHook = ''
-              echo "ormapadippu dev shell — node $(node -v), npm $(npm -v)"
+              echo "Thanima Quiz dev shell — node $(node -v), npm $(npm -v)"
               echo "Run: npm install && npm start"
             '';
           };

@@ -2,19 +2,20 @@ require("dotenv").config();
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const express = require("express");
+const multer = require("multer");
 const { MongoClient } = require("mongodb");
 const TOML = require("smol-toml");
 
 const PORT = process.env.PORT || 3000;
 const MONGODB_URI = process.env.MONGODB_URI;
-const MONGODB_DB = process.env.MONGODB_DB || "ormapadippu";
+const MONGODB_DB = process.env.MONGODB_DB || "quiz";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 const DEFAULT_CONFIG = {
-  name: "ormapadippu",
+  name: "Thanima Quiz",
   description: "",
-  dbLocation: "quizzes",
-  quizFile: "gandhi-quiz.json",
   maxTimePerQuestionSeconds: 7,
   oneQuestionPerPage: true,
   questionsPerAttempt: 20,
@@ -22,52 +23,27 @@ const DEFAULT_CONFIG = {
   state: "active",
   beforeText: "This quiz hasn't started yet. Please check back soon.",
   doneText: "This quiz has been completed and no more submissions will be taken.",
+  activeQuizId: null,
 };
 
-function loadConfig() {
-  try {
-    const raw = fs.readFileSync(path.join(__dirname, "quiz.toml"), "utf-8");
-    const parsed = TOML.parse(raw).quiz || {};
-    return {
-      name: parsed.name || DEFAULT_CONFIG.name,
-      description: parsed.description || DEFAULT_CONFIG.description,
-      dbLocation: parsed.db_location || DEFAULT_CONFIG.dbLocation,
-      quizFile: parsed.quiz_file || DEFAULT_CONFIG.quizFile,
-      maxTimePerQuestionSeconds:
-        parsed.max_time_per_question_seconds || DEFAULT_CONFIG.maxTimePerQuestionSeconds,
-      oneQuestionPerPage:
-        parsed.one_question_per_page !== undefined
-          ? parsed.one_question_per_page
-          : DEFAULT_CONFIG.oneQuestionPerPage,
-      questionsPerAttempt: parsed.questions_per_attempt || DEFAULT_CONFIG.questionsPerAttempt,
-      cooldownSeconds: parsed.cooldown_seconds || DEFAULT_CONFIG.cooldownSeconds,
-      state: parsed.state || DEFAULT_CONFIG.state,
-      beforeText: parsed.before_text || DEFAULT_CONFIG.beforeText,
-      doneText: parsed.done_text || DEFAULT_CONFIG.doneText,
-    };
-  } catch (err) {
-    console.warn("Could not read quiz.toml, using defaults:", err.message);
-    return DEFAULT_CONFIG;
-  }
-}
+// The service is unusable without a database, so this is what visitors see
+// whenever MongoDB isn't connected, regardless of what's actually configured.
+const DB_DOWN_CONFIG_OVERRIDE = {
+  state: "before",
+  beforeText: "The quiz service is temporarily unavailable. Please try again soon.",
+};
 
-const config = loadConfig();
-
+// ---------- App / static ----------
 const app = express();
 app.use(express.json());
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, "public")));
 
-app.get("/api/config", (req, res) => {
-  res.json(config);
-});
-
+// ---------- Mongo ----------
 let db = null;
 
 async function connectMongo() {
-  if (!MONGODB_URI || MONGODB_URI.includes("<user>")) {
-    console.warn(
-      "MONGODB_URI is not configured (see .env.example) — quiz results will not be saved."
-    );
+  if (!MONGODB_URI) {
+    console.warn("MONGODB_URI is not configured (see .env.example) — the app will not function.");
     return;
   }
   try {
@@ -75,24 +51,215 @@ async function connectMongo() {
     await client.connect();
     db = client.db(MONGODB_DB);
     await db.collection("results").createIndex({ quizId: 1, finishedAt: -1 });
+    // Abandoned attempts (browser closed mid-quiz) self-delete after 2 hours —
+    // these documents hold the answer key, so they shouldn't linger.
+    await db.collection("attempts").createIndex({ startedAt: 1 }, { expireAfterSeconds: 7200 });
     console.log(`Connected to MongoDB database "${MONGODB_DB}".`);
+    await seedIfEmpty();
   } catch (err) {
-    console.error("Could not connect to MongoDB — quiz results will not be saved:", err.message);
+    console.error("Could not connect to MongoDB:", err.message);
     db = null;
   }
 }
 
-app.post("/api/results", async (req, res) => {
+// One-time migration: if this is a fresh database (no config doc yet), seed it
+// from quiz.toml + the existing quizzes/*.json file so nothing already
+// authored is lost. After this, Mongo — via the admin panel — is authoritative.
+async function seedIfEmpty() {
+  const existing = await db.collection("config").findOne({ _id: "site" });
+  if (existing) return;
+
+  console.log("No config found in MongoDB — seeding from quiz.toml + quizzes/ on disk.");
+  let quizId = null;
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, "quizzes", "gandhi-quiz.json"), "utf-8");
+    const quiz = JSON.parse(raw);
+    quizId = quiz.id || "seed-quiz";
+    await db.collection("quizzes").updateOne(
+      { _id: quizId },
+      { $set: { title: quiz.title, description: quiz.description, questions: quiz.questions } },
+      { upsert: true }
+    );
+    console.log(`Seeded quiz "${quizId}" (${quiz.questions.length} questions).`);
+  } catch (err) {
+    console.warn("Could not seed a quiz from quizzes/gandhi-quiz.json:", err.message);
+  }
+
+  let tomlConfig = {};
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, "quiz.toml"), "utf-8");
+    tomlConfig = TOML.parse(raw).quiz || {};
+  } catch (err) {
+    console.warn("Could not read quiz.toml for seeding:", err.message);
+  }
+
+  const seeded = {
+    _id: "site",
+    name: tomlConfig.name || DEFAULT_CONFIG.name,
+    description: tomlConfig.description || DEFAULT_CONFIG.description,
+    maxTimePerQuestionSeconds:
+      tomlConfig.max_time_per_question_seconds || DEFAULT_CONFIG.maxTimePerQuestionSeconds,
+    oneQuestionPerPage:
+      tomlConfig.one_question_per_page !== undefined
+        ? tomlConfig.one_question_per_page
+        : DEFAULT_CONFIG.oneQuestionPerPage,
+    questionsPerAttempt: tomlConfig.questions_per_attempt || DEFAULT_CONFIG.questionsPerAttempt,
+    cooldownSeconds: tomlConfig.cooldown_seconds || DEFAULT_CONFIG.cooldownSeconds,
+    state: tomlConfig.state || DEFAULT_CONFIG.state,
+    beforeText: tomlConfig.before_text || DEFAULT_CONFIG.beforeText,
+    doneText: tomlConfig.done_text || DEFAULT_CONFIG.doneText,
+    activeQuizId: quizId,
+  };
+  await db.collection("config").insertOne(seeded);
+  console.log("Seeded site config into MongoDB.");
+}
+
+async function getConfig() {
+  const stored = (await db.collection("config").findOne({ _id: "site" })) || {};
+  return { ...DEFAULT_CONFIG, ...stored };
+}
+
+// ---------- Public API ----------
+app.get("/api/config", async (req, res) => {
   if (!db) {
-    return res.status(503).json({ error: "Database is not configured on the server." });
+    return res.json({ ...DEFAULT_CONFIG, ...DB_DOWN_CONFIG_OVERRIDE });
   }
   try {
-    const doc = { ...req.body, receivedAt: new Date() };
-    await db.collection("results").insertOne(doc);
+    const config = await getConfig();
+    let quizTitle = "";
+    let quizDescription = "";
+    if (config.state === "active" && config.activeQuizId) {
+      const quiz = await db.collection("quizzes").findOne(
+        { _id: config.activeQuizId },
+        { projection: { title: 1, description: 1 } }
+      );
+      if (quiz) {
+        quizTitle = quiz.title || "";
+        quizDescription = quiz.description || "";
+      } else {
+        // Configured active quiz doesn't exist (deleted, or never set up).
+        return res.json({
+          ...config,
+          state: "before",
+          beforeText: "This quiz hasn't been set up yet. Please check back soon.",
+        });
+      }
+    }
+    res.json({ ...config, quizTitle, quizDescription });
+  } catch (err) {
+    console.error("Failed to load config:", err.message);
+    res.status(500).json({ ...DEFAULT_CONFIG, ...DB_DOWN_CONFIG_OVERRIDE });
+  }
+});
+
+function shuffle(array) {
+  const arr = array.slice();
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+const REGISTRATION_NUMBER_PATTERN = /^\d{2}[A-Z]{3}\d{4}$/;
+
+app.post("/api/attempt/start", async (req, res) => {
+  if (!db) return res.status(503).json({ error: "Service unavailable." });
+
+  const participant = String(req.body.participant || "").trim();
+  const registrationNumber = String(req.body.registrationNumber || "")
+    .trim()
+    .toUpperCase();
+
+  if (!participant) return res.status(400).json({ error: "Name is required." });
+  if (!REGISTRATION_NUMBER_PATTERN.test(registrationNumber)) {
+    return res.status(400).json({ error: "Invalid registration number format." });
+  }
+
+  try {
+    const config = await getConfig();
+    if (config.state !== "active") {
+      return res.status(403).json({ error: "The quiz is not currently active." });
+    }
+    if (!config.activeQuizId) {
+      return res.status(500).json({ error: "No quiz is configured." });
+    }
+    const quiz = await db.collection("quizzes").findOne({ _id: config.activeQuizId });
+    if (!quiz || !Array.isArray(quiz.questions) || quiz.questions.length === 0) {
+      return res.status(500).json({ error: "The configured quiz has no questions." });
+    }
+
+    let picked = shuffle(quiz.questions);
+    const limit = config.questionsPerAttempt;
+    if (limit && limit > 0 && limit < picked.length) {
+      picked = picked.slice(0, limit);
+    }
+    const questions = picked.map((q) => {
+      const correctValue = q.options[q.correctIndex];
+      return { id: q.id, question: q.question, options: shuffle(q.options), correctValue };
+    });
+
+    const attemptId = crypto.randomUUID();
+    await db.collection("attempts").insertOne({
+      _id: attemptId,
+      quizId: config.activeQuizId,
+      participant,
+      registrationNumber,
+      startedAt: new Date(),
+      status: "in_progress",
+      questions,
+    });
+
+    res.status(201).json({
+      attemptId,
+      quizTitle: quiz.title || "",
+      quizDescription: quiz.description || "",
+      questions: questions.map(({ id, question, options }) => ({ id, question, options })),
+    });
+  } catch (err) {
+    console.error("Failed to start attempt:", err.message);
+    res.status(500).json({ error: "Could not start the quiz." });
+  }
+});
+
+app.post("/api/attempt/:id/finish", async (req, res) => {
+  if (!db) return res.status(503).json({ error: "Service unavailable." });
+
+  try {
+    const attempt = await db.collection("attempts").findOne({ _id: req.params.id });
+    if (!attempt || attempt.status !== "in_progress") {
+      return res.status(404).json({ error: "Attempt not found or already finished." });
+    }
+
+    const disqualified = Boolean(req.body.disqualified);
+    const submitted = Array.isArray(req.body.answers) ? req.body.answers : [];
+    const submittedById = new Map(submitted.map((a) => [a.questionId, a.selected ?? null]));
+
+    let score = 0;
+    const answers = attempt.questions.map((q) => {
+      const selected = submittedById.has(q.id) ? submittedById.get(q.id) : null;
+      const correct = selected !== null && selected === q.correctValue;
+      if (correct) score += 1;
+      return { questionId: q.id, selected, correct };
+    });
+
+    await db.collection("results").insertOne({
+      quizId: attempt.quizId,
+      participant: attempt.participant,
+      registrationNumber: attempt.registrationNumber,
+      startedAt: attempt.startedAt,
+      finishedAt: new Date(),
+      disqualified,
+      score,
+      total: attempt.questions.length,
+      answers,
+    });
+    await db.collection("attempts").deleteOne({ _id: attempt._id });
+
     res.status(201).json({ ok: true });
   } catch (err) {
-    console.error("Failed to save quiz result:", err.message);
-    res.status(500).json({ error: "Failed to save result." });
+    console.error("Failed to finish attempt:", err.message);
+    res.status(500).json({ error: "Could not save the result." });
   }
 });
 
@@ -100,8 +267,198 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, db: db ? "connected" : "not configured" });
 });
 
+// ---------- Admin ----------
+// Password-only session auth (no username field, unlike HTTP Basic Auth).
+function safeEqual(a, b) {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+const SESSION_COOKIE = "admin_session";
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+const adminSessions = new Map(); // token -> expiresAt (ms)
+
+function createSession() {
+  const token = crypto.randomUUID();
+  adminSessions.set(token, Date.now() + SESSION_TTL_MS);
+  return token;
+}
+
+function isValidSession(token) {
+  const expiresAt = adminSessions.get(token);
+  if (!expiresAt) return false;
+  if (Date.now() > expiresAt) {
+    adminSessions.delete(token);
+    return false;
+  }
+  return true;
+}
+
+function getCookie(req, name) {
+  const header = req.headers.cookie;
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return null;
+}
+
+function adminAuth(req, res, next) {
+  if (!ADMIN_PASSWORD) {
+    return res.status(503).send("Admin panel is not configured (set ADMIN_PASSWORD in .env).");
+  }
+  const token = getCookie(req, SESSION_COOKIE);
+  if (token && isValidSession(token)) return next();
+  if (req.originalUrl.startsWith("/api/")) {
+    return res.status(401).json({ error: "Not authenticated." });
+  }
+  return res.redirect("/admin/login");
+}
+
+app.get("/admin/login", (req, res) => {
+  res.sendFile(path.join(__dirname, "admin", "login.html"));
+});
+
+app.post("/api/admin/login", (req, res) => {
+  if (!ADMIN_PASSWORD) {
+    return res.status(503).json({ error: "Admin panel is not configured." });
+  }
+  const password = String((req.body && req.body.password) || "");
+  if (!safeEqual(password, ADMIN_PASSWORD)) {
+    return res.status(401).json({ error: "Incorrect password." });
+  }
+  const token = createSession();
+  res.cookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "strict",
+    secure: req.secure,
+    maxAge: SESSION_TTL_MS,
+    path: "/",
+  });
+  res.json({ ok: true });
+});
+
+app.post("/api/admin/logout", (req, res) => {
+  const token = getCookie(req, SESSION_COOKIE);
+  if (token) adminSessions.delete(token);
+  res.clearCookie(SESSION_COOKIE, { path: "/" });
+  res.json({ ok: true });
+});
+
+app.use("/admin", adminAuth, express.static(path.join(__dirname, "admin")));
+
+function requireDb(req, res, next) {
+  if (!db) return res.status(503).json({ error: "Database is not connected." });
+  next();
+}
+
+app.get("/api/admin/config", adminAuth, requireDb, async (req, res) => {
+  res.json(await getConfig());
+});
+
+app.put("/api/admin/config", adminAuth, requireDb, async (req, res) => {
+  const allowedKeys = [
+    "name",
+    "description",
+    "maxTimePerQuestionSeconds",
+    "oneQuestionPerPage",
+    "questionsPerAttempt",
+    "cooldownSeconds",
+    "state",
+    "beforeText",
+    "doneText",
+    "activeQuizId",
+  ];
+  const update = {};
+  for (const key of allowedKeys) {
+    if (req.body[key] !== undefined) update[key] = req.body[key];
+  }
+  await db.collection("config").updateOne({ _id: "site" }, { $set: update }, { upsert: true });
+  res.json(await getConfig());
+});
+
+app.get("/api/admin/quizzes", adminAuth, requireDb, async (req, res) => {
+  const quizzes = await db
+    .collection("quizzes")
+    .find({}, { projection: { title: 1, description: 1, questions: 1 } })
+    .toArray();
+  res.json(
+    quizzes.map((q) => ({
+      id: q._id,
+      title: q.title,
+      description: q.description,
+      questionCount: Array.isArray(q.questions) ? q.questions.length : 0,
+    }))
+  );
+});
+
+function validateQuizShape(quiz) {
+  if (!quiz || typeof quiz !== "object") return "Not a JSON object.";
+  if (!quiz.id || typeof quiz.id !== "string") return "Missing string \"id\".";
+  if (!quiz.title || typeof quiz.title !== "string") return "Missing string \"title\".";
+  if (!Array.isArray(quiz.questions) || quiz.questions.length === 0) {
+    return "Missing non-empty \"questions\" array.";
+  }
+  for (const [i, q] of quiz.questions.entries()) {
+    if (!q.id || typeof q.question !== "string") return `Question ${i + 1}: missing id/question.`;
+    if (!Array.isArray(q.options) || q.options.length < 2) {
+      return `Question ${i + 1}: needs an "options" array with at least 2 entries.`;
+    }
+    if (
+      typeof q.correctIndex !== "number" ||
+      q.correctIndex < 0 ||
+      q.correctIndex >= q.options.length
+    ) {
+      return `Question ${i + 1}: "correctIndex" must index into "options".`;
+    }
+  }
+  return null;
+}
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+app.post("/api/admin/quizzes", adminAuth, requireDb, upload.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded (field name: file)." });
+  let quiz;
+  try {
+    quiz = JSON.parse(req.file.buffer.toString("utf-8"));
+  } catch (err) {
+    return res.status(400).json({ error: "Uploaded file is not valid JSON." });
+  }
+  const problem = validateQuizShape(quiz);
+  if (problem) return res.status(400).json({ error: problem });
+
+  await db.collection("quizzes").updateOne(
+    { _id: quiz.id },
+    { $set: { title: quiz.title, description: quiz.description || "", questions: quiz.questions } },
+    { upsert: true }
+  );
+  res.status(201).json({ ok: true, id: quiz.id, questionCount: quiz.questions.length });
+});
+
+app.delete("/api/admin/quizzes/:id", adminAuth, requireDb, async (req, res) => {
+  await db.collection("quizzes").deleteOne({ _id: req.params.id });
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/results", adminAuth, requireDb, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+  const results = await db
+    .collection("results")
+    .find({})
+    .sort({ finishedAt: -1 })
+    .limit(limit)
+    .toArray();
+  res.json(results);
+});
+
+// ---------- Start ----------
 app.listen(PORT, () => {
-  console.log(`ormapadippu running at http://localhost:${PORT}`);
+  console.log(`Thanima Quiz running at http://localhost:${PORT}`);
 });
 
 connectMongo();
