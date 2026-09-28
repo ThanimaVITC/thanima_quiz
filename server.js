@@ -40,6 +40,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // ---------- Mongo ----------
 let db = null;
+let dbConnectPromise = null;
 
 async function connectMongo() {
   if (!MONGODB_URI) {
@@ -62,6 +63,22 @@ async function connectMongo() {
     console.error("Could not connect to MongoDB:", err.message);
     db = null;
   }
+}
+
+// Retries the connection on demand rather than only once at cold start - on
+// a serverless host, a single failed attempt (network blip, IP allowlist
+// hiccup) would otherwise leave that instance permanently unable to serve
+// requests until it happens to be recycled. Concurrent callers share one
+// in-flight attempt instead of racing separate connections.
+async function ensureDb() {
+  if (db) return db;
+  if (!dbConnectPromise) {
+    dbConnectPromise = connectMongo().finally(() => {
+      dbConnectPromise = null;
+    });
+  }
+  await dbConnectPromise;
+  return db;
 }
 
 // One-time migration: if this is a fresh database (no config doc yet), seed it
@@ -123,7 +140,7 @@ async function getConfig() {
 
 // ---------- Public API ----------
 app.get("/api/config", async (req, res) => {
-  if (!db) {
+  if (!(await ensureDb())) {
     return res.json({ ...DEFAULT_CONFIG, ...DB_DOWN_CONFIG_OVERRIDE });
   }
   try {
@@ -166,7 +183,7 @@ function shuffle(array) {
 const REGISTRATION_NUMBER_PATTERN = /^\d{2}[A-Z]{3}\d{4}$/;
 
 app.post("/api/attempt/start", async (req, res) => {
-  if (!db) return res.status(503).json({ error: "Service unavailable." });
+  if (!(await ensureDb())) return res.status(503).json({ error: "Service unavailable." });
 
   const participant = String(req.body.participant || "").trim();
   const registrationNumber = String(req.body.registrationNumber || "")
@@ -225,7 +242,7 @@ app.post("/api/attempt/start", async (req, res) => {
 });
 
 app.post("/api/attempt/:id/finish", async (req, res) => {
-  if (!db) return res.status(503).json({ error: "Service unavailable." });
+  if (!(await ensureDb())) return res.status(503).json({ error: "Service unavailable." });
 
   try {
     const attempt = await db.collection("attempts").findOne({ _id: req.params.id });
@@ -319,7 +336,7 @@ async function adminAuth(req, res, next) {
   if (!ADMIN_PASSWORD) {
     return res.status(503).send("Admin panel is not configured (set ADMIN_PASSWORD in .env).");
   }
-  if (!db) {
+  if (!(await ensureDb())) {
     return res.status(503).send("Database is not connected.");
   }
   try {
@@ -342,7 +359,7 @@ app.post("/api/admin/login", async (req, res) => {
   if (!ADMIN_PASSWORD) {
     return res.status(503).json({ error: "Admin panel is not configured." });
   }
-  if (!db) {
+  if (!(await ensureDb())) {
     return res.status(503).json({ error: "Database is not connected." });
   }
   const password = String((req.body && req.body.password) || "");
@@ -369,8 +386,8 @@ app.post("/api/admin/logout", async (req, res) => {
 
 app.use("/admin", adminAuth, express.static(path.join(__dirname, "admin")));
 
-function requireDb(req, res, next) {
-  if (!db) return res.status(503).json({ error: "Database is not connected." });
+async function requireDb(req, res, next) {
+  if (!(await ensureDb())) return res.status(503).json({ error: "Database is not connected." });
   next();
 }
 
