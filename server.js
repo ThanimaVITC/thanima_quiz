@@ -54,6 +54,8 @@ async function connectMongo() {
     // Abandoned attempts (browser closed mid-quiz) self-delete after 2 hours -
     // these documents hold the answer key, so they shouldn't linger.
     await db.collection("attempts").createIndex({ startedAt: 1 }, { expireAfterSeconds: 7200 });
+    // Admin sessions self-delete at their expiresAt timestamp.
+    await db.collection("admin_sessions").createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     console.log(`Connected to MongoDB database "${MONGODB_DB}".`);
     await seedIfEmpty();
   } catch (err) {
@@ -278,22 +280,28 @@ function safeEqual(a, b) {
 
 const SESSION_COOKIE = "admin_session";
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
-const adminSessions = new Map(); // token -> expiresAt (ms)
 
-function createSession() {
+// Sessions live in MongoDB, not in-memory - this app runs as stateless
+// serverless functions in production (Vercel), where each request can land
+// on a completely different instance with its own blank memory, so an
+// in-memory session map would "work" on login and then vanish immediately.
+async function createSession() {
   const token = crypto.randomUUID();
-  adminSessions.set(token, Date.now() + SESSION_TTL_MS);
+  await db
+    .collection("admin_sessions")
+    .insertOne({ _id: token, expiresAt: new Date(Date.now() + SESSION_TTL_MS) });
   return token;
 }
 
-function isValidSession(token) {
-  const expiresAt = adminSessions.get(token);
-  if (!expiresAt) return false;
-  if (Date.now() > expiresAt) {
-    adminSessions.delete(token);
-    return false;
-  }
-  return true;
+async function isValidSession(token) {
+  const session = await db.collection("admin_sessions").findOne({ _id: token });
+  return Boolean(session);
+  // Expired sessions are cleaned up by the TTL index (see connectMongo); no
+  // need to check expiresAt here.
+}
+
+async function deleteSession(token) {
+  await db.collection("admin_sessions").deleteOne({ _id: token });
 }
 
 function getCookie(req, name) {
@@ -307,12 +315,19 @@ function getCookie(req, name) {
   return null;
 }
 
-function adminAuth(req, res, next) {
+async function adminAuth(req, res, next) {
   if (!ADMIN_PASSWORD) {
     return res.status(503).send("Admin panel is not configured (set ADMIN_PASSWORD in .env).");
   }
-  const token = getCookie(req, SESSION_COOKIE);
-  if (token && isValidSession(token)) return next();
+  if (!db) {
+    return res.status(503).send("Database is not connected.");
+  }
+  try {
+    const token = getCookie(req, SESSION_COOKIE);
+    if (token && (await isValidSession(token))) return next();
+  } catch (err) {
+    console.error("Admin session check failed:", err.message);
+  }
   if (req.originalUrl.startsWith("/api/")) {
     return res.status(401).json({ error: "Not authenticated." });
   }
@@ -323,15 +338,18 @@ app.get("/admin/login", (req, res) => {
   res.sendFile(path.join(__dirname, "admin", "login.html"));
 });
 
-app.post("/api/admin/login", (req, res) => {
+app.post("/api/admin/login", async (req, res) => {
   if (!ADMIN_PASSWORD) {
     return res.status(503).json({ error: "Admin panel is not configured." });
+  }
+  if (!db) {
+    return res.status(503).json({ error: "Database is not connected." });
   }
   const password = String((req.body && req.body.password) || "");
   if (!safeEqual(password, ADMIN_PASSWORD)) {
     return res.status(401).json({ error: "Incorrect password." });
   }
-  const token = createSession();
+  const token = await createSession();
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "strict",
@@ -342,9 +360,9 @@ app.post("/api/admin/login", (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/admin/logout", (req, res) => {
+app.post("/api/admin/logout", async (req, res) => {
   const token = getCookie(req, SESSION_COOKIE);
-  if (token) adminSessions.delete(token);
+  if (token && db) await deleteSession(token);
   res.clearCookie(SESSION_COOKIE, { path: "/" });
   res.json({ ok: true });
 });
@@ -541,3 +559,8 @@ app.listen(PORT, () => {
 });
 
 connectMongo();
+
+// Exported so a Vercel serverless function entrypoint can `require` this
+// file and hand requests to the Express app directly, instead of relying on
+// app.listen() (which Vercel's runtime doesn't actually use).
+module.exports = app;
