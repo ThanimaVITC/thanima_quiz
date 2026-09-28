@@ -112,6 +112,9 @@ body {
 .btn-small {
   padding: 6px 12px;
   font-size: 0.82rem;
+  /* .btn's 12px radius looks disproportionately rounded (near-pill) at this
+     button's much shorter height - scale it down to match. */
+  border-radius: 8px;
 }
 
 .admin-toolbar {
